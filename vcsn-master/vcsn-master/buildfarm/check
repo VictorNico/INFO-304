@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+. $(dirname "$0")/common
+
+## ------ ##
+## Main.  ##
+## ------ ##
+
+cd "$DIR_BUILD"
+make -j${NBPROC:-2} check </dev/null

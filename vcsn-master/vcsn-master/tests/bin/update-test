@@ -1,0 +1,127 @@
+#! /usr/bin/env python
+
+# A very rough utility to update test files from their log file.  This
+# is very handy when there is a change of syntax: changing every
+# single expected output is tedious and error-prone.
+#
+# usage:
+# update-test --builddir=_build tests/python/*.py tests/python/determinize.dir/*
+
+import argparse
+import os
+import re
+
+
+def getargs():
+    p = argparse.ArgumentParser(description='Update test cases.')
+    opt = p.add_argument
+    opt('tests', metavar='test', nargs='+', type=str, default=None,
+        help='test files to update')
+    opt('--builddir', metavar='DIR', type=str, default='.',
+        help='look for the logs in DIR')
+    opt('-d', '--diffs', action='store_true',
+        help='''also parse the diffs.  By default diffs are not
+        read, only the "Expected" and "Effective" sections of the log
+        files are parsed, because often the context of the diffs are
+        too coarse, and the subsitution is too eager.  But on occasions,
+        for instance to process notebooks, diffs are better suited.
+        ''')
+    opt('-l', '--log', metavar='FILE', nargs="+", type=str, default=[],
+        help='consider DIR/FILE')
+    opt('-v', '--verbose', action='store_true',
+        help='Be verbose')
+    opt('-t', '--threshold', metavar='LEN', type=int, default=5,
+        help='''discard patterns that are smaller than this length.
+        This is a protection against changes such as s/a/b/g if some
+        expected output moved from a to b.  Does not apply to --diff.''')
+    return p.parse_args()
+
+args = getargs()
+subst = dict()
+
+
+def log(*args_):
+    if args.verbose:
+        print(*args_)
+
+
+def contents(file):
+    '''The contents of a file.'''
+    log(file)
+    f = open(file)
+    return f.read()
+
+
+def diff_to_re(match):
+    '''Convert a portion of patch into a regex substitution to perform.
+    No longer used, we now use the expected/effective parts.
+    '''
+    frm = []
+    to = []
+    is_diff = False
+    for l in match.group(1).splitlines():
+        # t in [-+ ]
+        t = l[1]
+        l = l[2:]
+        if t in ['-', ' ']:
+            is_diff = True
+            frm.append(l)
+        if t in ['+', ' ']:
+            is_diff = True
+            to.append(l)
+    if is_diff:
+        frm = "\n".join(frm)
+        to = "\n".join(to)
+        subst[frm] = to
+
+
+def exp_eff_to_re(match):
+    fr = ''
+    to = ''
+    for l in match.group(1).splitlines(True):
+        fr += l[1:]
+    # Drop the final \n.
+    fr = fr[:-1]
+    if args.threshold <= len(fr):
+        for l in match.group(2).splitlines(True):
+            to += l[1:]
+        to = to[:-1]
+        subst[fr] = to
+        log("SUBST: {} -> {}".format(fr, to))
+
+
+def update(test, logfile):
+    logfile = os.path.join(args.builddir, logfile)
+    if os.path.isfile(logfile):
+        log("LOG: ", logfile)
+        l = contents(logfile)
+        global subst  # pylint: disable=global-statement
+        subst = dict()
+        re.sub(r'Expected (?:out.*?|error)::\n\n((?:^\t.*\n)+)\n'
+               + 'Effective (?:out.*?|error)::\n\n((?:^\t.*\n)+)\n',
+               exp_eff_to_re, l, flags=re.MULTILINE)
+        if args.diffs:
+            re.sub(r'((?:^\t[-+ ].*\n)+)',
+                   diff_to_re, l, flags = re.MULTILINE)
+        if subst:
+            # Turn "subst{frm} -> to" into a large RE.
+            frm = '|'.join([re.escape(x) for x in subst])
+            log("FROM:", frm)
+            test = re.sub("(" + frm + ")",
+                          lambda m: subst[m.group(1)],
+                          test, flags=re.MULTILINE)
+    return test
+
+for t in args.tests:
+    log("FILE:", t)
+    old = contents(t)
+    new = old
+    # Use the logs provided by the user, and the ones computed from the
+    # test file name (e.g., tests/python/automaton.py ->
+    # tests/python/automaton.log), and the ones from the test
+    # directories (tests/python/automaton.dir/a1.gv ->
+    # tests/python/automaton.log)
+    for l in args.log + [t[:t.rfind('.')] + '.log'] + [t[:t.rfind('.dir/')] + '.log']:
+        new = update(new, l)
+    if new != old:
+        open(t, 'w').write(new)

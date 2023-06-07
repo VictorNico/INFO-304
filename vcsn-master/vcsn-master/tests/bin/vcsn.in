@@ -1,0 +1,50 @@
+#! @SHELL@
+# @configure_input@
+# Wrapper around a non installed vcsn to make it work as an installed one.
+
+export abs_srcdir='@abs_top_srcdir@'
+export abs_builddir='@abs_top_builddir@'
+
+# Where the instantiated contexts are generated and compiled.
+export VCSN_PLUGINDIR=$abs_builddir/lib/plugins
+
+# Use the local files, not those installed.
+export VCSN_DATADIR=${VCSN_DATADIR-$abs_srcdir/share/vcsn}
+export VCSN_DATA_PATH=${VCSN_DATA_PATH-$VCSN_DATADIR:$abs_builddir/share/vcsn}
+export VCSN_DOCDIR=${VCSN_DOCDIR-$abs_srcdir/doc}
+export VCSN_LIBEXECDIR=${VCSN_LIBEXECDIR-$abs_srcdir/libexec:$abs_builddir/libexec}
+
+# Let bin/vcsn know what path it should use.
+export VCSN_PATH=${VCSN_PATH-$abs_builddir/bin:$abs_srcdir/bin:$VCSN_LIBEXECDIR:$PATH}
+
+# Use the non-installed binaries.
+export PATH=$VCSN_PATH
+
+# Use the non-installed Python modules, and its libraries.
+export VCSN_PYTHONDIR=$abs_srcdir/python
+export PYTHONPATH=$VCSN_PYTHONDIR:$abs_builddir/python:$abs_builddir/python/.libs:$PYTHONPATH
+# Be sure to find tests/bin/test.py when this script is ran by hand.
+export PYTHONPATH=$abs_srcdir/tests/bin:$PYTHONPATH
+export LD_LIBRARY_PATH=$abs_builddir/lib/.libs:$abs_builddir/python/.libs:$LD_LIBRARY_PATH
+export DYLD_LIBRARY_PATH=$abs_builddir/lib/.libs:$abs_builddir/python/.libs:$DYLD_LIBRARY_PATH
+
+# Apple's SIP (System Integrity Protection) filters out the DYLD_*
+# envvars when calling programs from /bin, in particular /bin/sh.  As
+# a result, when we invoke `vcsn` (the installed binary) we lose these
+# variables.  So pass them via another envvar, and let the installed
+# `vcsn` install them when defined.
+export VCSN_DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH
+
+# If we need to compile, use the non-installed headers and libs.
+export VCSN_CPPFLAGS="-I $abs_builddir -I $abs_srcdir @VCSN_CPPFLAGS@"
+export VCSN_LDFLAGS="-L $abs_builddir/lib/.libs @VCSN_LDFLAGS@"
+
+case $1 in
+  ('--export') ;; # We are sourced to set up the environment.
+  (*) # Hopefully not looping here, thanks to the change of PATH.
+      exec vcsn "$@";;
+esac
+
+# Local Variables:
+# mode: shell-script
+# End:

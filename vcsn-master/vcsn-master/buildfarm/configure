@@ -1,0 +1,37 @@
+#!/bin/sh
+
+set -ex
+. $(dirname "$0")/common
+
+## ----------- ##
+## Configure.  ##
+## ----------- ##
+
+if $(older "$DIR_BUILD/Makefile" "$0"); then
+  if test ! -d "$DIR_BUILD"; then
+    test ! -e "$DIR_BUILD" \
+      || fatal "DIR_BUILD is not a directory: $DIR_BUILD"
+    mkdir -p "$DIR_BUILD" \
+      || fatal "cannot mkdir $DIR_BUILD"
+  fi
+  cd "$DIR_BUILD"
+  env >$DIR_BUILD/environment.log
+
+  # If we are using ccache with clang, then we have spurious warnings:
+  #
+  # clang: warning: argument unused during compilation: '-I .'
+  #
+  # This can be addressed by -Qunused-arguments.
+  case $CXX in
+    (ccache*clang*)
+      CXXFLAGS="$CXXFLAGS -Qunused-arguments"
+      export CXXFLAGS
+      ;;
+  esac
+  # Don't keep the cache, we often don't need to rerun configure, and
+  # when we do, it's often because configure itself changed, in which
+  # case config.cache becomes a nuisance.
+  run "$DIR_SOURCE/configure"                   \
+    --enable-dependency-tracking                \
+    "$@"
+fi

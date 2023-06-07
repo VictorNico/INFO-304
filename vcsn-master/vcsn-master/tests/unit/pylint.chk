@@ -1,0 +1,64 @@
+#! /bin/sh
+
+# Do not run pylint under Valgrind.
+unset PREPROG
+
+# Look for pylint.
+short_python_version="$(echo $PYTHON_VERSION | cut -d'.' -f1)"
+
+for p in pylint                                                   \
+         pylint-$PYTHON_VERSION pylint$PYTHON_VERSION             \
+         pylint-$short_python_version pylint$short_python_version \
+         pylint3
+do
+    echo "Checking $p"
+    # We require Python >= 3 and Pylint >= 1.5.4.
+    version=$($p --version 2> /dev/null || true)
+    # Python 3.5.4 (default, Sep 27 2017, 15:52:32)
+    python_version=$(echo "$version" | sed -ne '/^Python /{s///;s/ .*//;p;}')
+    echo "    Python version: $python_version"
+    # pylint 1.7.4,
+    pylint_version=$(echo "$version" | sed -ne '/^pylint /{s///;s/,.*//;p;}')
+    echo "    Pylint version: $pylint_version"
+    case $python_version:$pylint_version in
+        (:)
+            echo "    Skip $p: cannot get version";;
+        (:*)
+            echo "    Skip $p: cannot get Python version";;
+        (*:)
+            echo "    Skip $p: cannot get pylint version";;
+        (2.*:*)
+            echo "    Skip $p: Python 2";;
+        (3.*:[0-1].[0-5].*)
+            echo "    Skip $p: Python >= 3 with pylint < 1.6";;
+        (3.[6-9].*:1.6.*)
+            echo "    Skip $p: Python >= 3.6 with pylint < 1.7";;
+        (*)
+            echo "    Keep $p"
+            pylint=$p
+            break
+            ;;
+    esac
+done
+
+if test -z "$pylint"; then
+    tap_skip "Could not find usable Pylint"
+    exit 0
+fi
+
+# Apparently pylint is having problems with symlinks.
+srcdir=$(perl -MCwd -le 'print Cwd::abs_path(shift)' "$srcdir")
+
+pylintflags=--rcfile="$srcdir"/python/pylintrc
+
+# Print version in log.
+run 0 ignore -$pylint $pylintflags --version
+
+# Run Pylint on our modules.
+run 0 ignore -vcsn run $pylint "$pylintflags" "$srcdir"/python/vcsn
+run 0 ignore -vcsn run $pylint "$pylintflags" "$srcdir"/python/vcsn_tools
+
+# Get all the auxiliary Python scripts.
+pyscripts=$(grep -l '/usr/bin/env python' -r "$srcdir"/tests/bin "$srcdir"/doc "$srcdir"/libexec "$srcdir"/build-aux/bin \
+           | grep -Ev '\.swp$|~$')
+run 0 ignore -vcsn run $pylint "$pylintflags" $pyscripts

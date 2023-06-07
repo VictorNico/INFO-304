@@ -1,0 +1,48 @@
+#!/bin/sh
+
+set -ex
+. $(dirname "$0")/common
+
+# Help debugging.
+mkdir -p $DIR_BUILD
+env >$DIR_BUILD/environment.log
+
+## ----------- ##
+## Bootstrap.  ##
+## ----------- ##
+
+# Dead links are troublesome.  There can be some for instance with
+# gnulib's configure when a module is obsoleted: its symlinks remain.
+#
+# --no-run-if-empty, -r
+#   OS X does not support -r, and anyway "rm -f" is valid.
+# --verbose, -t
+find . -type l -print | perl -nle '-e || print' | xargs -t rm -f
+
+# If some files source file for configure changed, restart.
+#
+# If there is not even config.status, something must have gone
+# really wrong in the previous build.  Start from scratch.
+if $(older "$DIR_SOURCE/configure"              \
+           "$0"                                 \
+           "$DIR_SOURCE/configure.ac"           \
+           "$DIR_SOURCE/build-aux/m4/"*)        \
+    || test ! -e $DIR_BUILD/config.status; then
+  cd "$DIR_SOURCE"
+  ./bootstrap
+  cd "$DIR_ROOT"
+
+  # We have changed stuff in our configuration.  Let's completely
+  # reconfigure everything from scratch.  For instance if we change of
+  # "Boost" version, then we no longer want to have the Makefile still
+  # record the location of the previous version of Boost we were
+  # using, but really the new ones.  So really, it's costly, but
+  # safer, to start anew.
+  if test -d "$DIR_BUILD"; then
+    # Beware that distcheck builds readonly hierarchies, which we need
+    # to switch back to writable before removal.  Taken from
+    # am__remove_distdir in Makefile.in.
+    find "$DIR_BUILD" -type d ! -perm -200 -exec chmod u+w {} ';'
+    rm -rf "$DIR_BUILD"
+  fi
+fi
